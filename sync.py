@@ -1,12 +1,12 @@
 import os
 import argparse
+import time
 from minio import Minio
 arg = argparse.ArgumentParser()
 arg.add_argument("--s3", type = str)
 arg.add_argument("--access_key", type = str)
 arg.add_argument("--secret_key", type = str)
 arg.add_argument("--dir", type = str, default = '')
-
 options = vars(arg.parse_args())
 f = open('database.txt','a')
 if (options['dir'] != ''):
@@ -34,15 +34,21 @@ def get_all_source(path, list_of_files):
 			list_of_files.append(path+'/'+item)
 def update_time(file, arr):
 	i, len_arr = 0, len(arr)
+	print(file)
 	while (i < len_arr):
 		if (arr[i][arr[i].find('/')+1:] == file[file.find('/')+1:]):
-			if (os.path.getmtime(arr[i]) < os.path.getmtime(file)):
-				arr[i] = file
+			try:
+				if (os.path.getmtime(arr[i]) < os.path.getmtime(file)):
+					arr[i] = file
+			except Exception:
+				pass
 			return
 		i+=1 
 	arr.append(file)
+	print(arr)
 def prepare_to_sync(paths):
 	folders = []
+	to_new.clear()
 	for path in paths:
 		a = []
 		get_all_source(path,a)
@@ -65,20 +71,35 @@ def prepare_to_sync(paths):
 		name_of_dir = paths[cnt]
 		for file in folder:
 			if (not (file[file.find('/')+1:] in server_files)):
+				print("Hello")
 				update_time(file, to_new)
 		cnt+=1
+	print(to_new)
 
 def sync(paths):
 	prepare_to_sync(paths)
+	print(to_new)
 	#first - update
 	for file in to_update:
-		client.fput_object('alexey', file[file.find('/')+1:], file)
+		try:
+			if (client.stat_object('alexey',file[file.find('/')+1:]).last_modified < os.path.getmtime(file)):
+				print("upload")
+				client.fput_object('alexey', file[file.find('/')+1:], file)
+				time = client.stat_object('alexey',file[file.find('/')+1:])
+				os.utime(file,(time.last_modified,time.last_modified))
+		except Exception:
+			pass
 	#second - delete
 	for file in to_delete:
 		client.remove_object('alexey', file)
 	#third - new
 	for file in to_new:
-		client.fput_object('alexey', file[file.find('/')+1:], file)
+		try:
+			client.fput_object('alexey', file[file.find('/')+1:], file)
+			time = client.stat_object('alexey',file[file.find('/')+1:])
+			os.utime(file,(time.last_modified,time.last_modified))
+		except Exception:
+			pass
 	folders = []
 	for path in paths:
 		a = []
@@ -88,14 +109,27 @@ def sync(paths):
 	server_files = []
 	for file in sf:
 		server_files.append(file.object_name)
-
 	for folder in folders:
 		for file in folder:
 			if (not (file[file.find('/')+1:] in server_files)):
-				os.remove(file)
+				try:
+					os.remove(file)
+				except Exception:
+					pass
 			else:
-				client.fget_object('alexey',file[file.find('/')+1:], file)
+				print(client.stat_object('alexey',file[file.find('/')+1:]).last_modified, os.path.getmtime(file))
+				if (client.stat_object('alexey',file[file.find('/')+1:]).last_modified > os.path.getmtime(file)):
+					print("download")
+					client.fget_object('alexey',file[file.find('/')+1:], file)						
+					time = client.stat_object('alexey',file[file.find('/')+1:])
+					os.utime(file,(time.last_modified,time.last_modified))
+	print(to_new)
 	for path in paths:
 		for file in to_new:
 			client.fget_object('alexey',file[file.find('/')+1:], path+'/'+file[file.find('/')+1:])
-sync(paths)
+			time = client.stat_object('alexey',file[file.find('/')+1:])
+			os.utime(path+'/'+file[file.find('/')+1:],(time.last_modified,time.last_modified))
+if (options['dir'] == ''):
+	while True:
+		sync(paths)
+		time.sleep(5)
