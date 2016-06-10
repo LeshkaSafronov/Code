@@ -79,17 +79,17 @@ def prepare_to_sync(paths):
 		name_of_dir = paths[cnt]
 		for file in folder:
 			if (not (file[file.find('/')+1:] in server_files)):
-				print("Hello")
+				#print("Hello")
 				update_time(file, to_new)
 		cnt+=1
 def sync(paths):
 	prepare_to_sync(paths)
-	print(to_new)
+#	print(to_new)
 	#first - update
 	for file in to_update:
 		try:
 			if (client.stat_object('alexey',file[file.find('/')+1:]).last_modified < os.path.getmtime(file)):
-				print("upload")
+		#		print("upload")
 				client.fput_object('alexey', file[file.find('/')+1:], file)
 				time = client.stat_object('alexey',file[file.find('/')+1:])
 				os.utime(file,(time.last_modified,time.last_modified))
@@ -123,9 +123,9 @@ def sync(paths):
 				except Exception:
 					pass
 			else:
-				print(client.stat_object('alexey',file[file.find('/')+1:]).last_modified, os.path.getmtime(file))
+			#	print(client.stat_object('alexey',file[file.find('/')+1:]).last_modified, os.path.getmtime(file))
 				if (client.stat_object('alexey',file[file.find('/')+1:]).last_modified > os.path.getmtime(file)):
-					print("download")
+			#		print("download")
 					client.fget_object('alexey',file[file.find('/')+1:], file)						
 					time = client.stat_object('alexey',file[file.find('/')+1:])
 					os.utime(file,(time.last_modified,time.last_modified))
