@@ -1,142 +1,93 @@
-import os
-import argparse
-import time
+import os, time, argparse
 from minio import Minio
 arg = argparse.ArgumentParser()
-arg.add_argument("--s3", type = str)
-arg.add_argument("--access_key", type = str)
-arg.add_argument("--secret_key", type = str)
-arg.add_argument("--dir", type = str, default = [])
+arg.add_argument("--s3", type = str, default = "")
+arg.add_argument("--access_key", type = str, default = "")
+arg.add_argument("--secret_key", type = str, default = "")
+arg.add_argument("--dir", type = str, default = "")
 options = vars(arg.parse_args())
-def get_folders():
-	fl = []
-	try:
-		with open('database.txt') as input_data:
-			for line in input_data:
-				fl.append(line)
-			input_data.close()
-	finally:
-		return fl
-if (len(options['dir'])):
-	if (not (options['dir']+'\n' in get_folders())):
-		f = open('database.txt','a')
-		f.write(options['dir']+'\n')
-		f.close()
-else:
-	input_paths = []
-	with open('database.txt') as input_data:
-		for line in input_data:
-			input_paths.append(line)
-	paths = []
-	for path in input_paths:
-		paths.append(path[:len(path)-1])
+for option in options.items():
+	if (not len(option[1])):
+		print("Пользователь не передал обязательный параметр командной строки")
+		exit(1)
+history = {}
 client = Minio(options['s3'],
-               options['access_key'],
-               options['secret_key'],
-               secure=False)
-to_new, to_delete, to_update = [], [], []
-def get_all_source(path, list_of_files):
-	data = os.listdir(path)
-	for item in data:
-		if os.path.isdir(path+'/'+item):
-			get_all_source(path+'/'+item, list_of_files)
+   	           options['access_key'],
+       	       options['secret_key'],
+           	   secure=False)
+try:
+	client.bucket_exists("alexey")
+except Exception:
+	print("Проверьте s3|access_key|secret_key")
+	exit(2)
+if (not client.bucket_exists("alexey")):
+	client.make_bucket("alexey")
+def get_list_of_files(path, list_of_files):
+	files = os.listdir(path)
+	for file in files:
+		if os.path.isdir(path+'/'+file):
+			get_list_of_files(path+'/'+file,list_of_files)
 		else:
-			list_of_files.append(path+'/'+item)
-def update_time(file, arr):
-	i, len_arr = 0, len(arr)
-	while (i < len_arr):
-		if (arr[i][arr[i].find('/')+1:] == file[file.find('/')+1:]):
+			list_of_files.append(path+'/'+file)
+def sync_time(path, path_server):
+	time = client.stat_object('alexey',path_server).last_modified
+	os.utime(path,(time,time))
+def sync(path):
+	folder = []
+	get_list_of_files(path, folder)
+	server_files = client.list_objects('alexey', recursive=True)
+	for file in server_files:
+		if (path+'/'+file.object_name in folder):
 			try:
-				if (os.path.getmtime(arr[i]) < os.path.getmtime(file)):
-					arr[i] = file
+				if (time.mktime(file.last_modified.timetuple()) > os.path.getmtime(path+'/'+file.object_name)):
+					print('download')
+					client.fget_object('alexey', file.object_name, path+'/'+file.object_name)
+					sync_time(path+'/'+file.object_name, file.object_name)
+				else:
+					if (time.mktime(file.last_modified.timetuple()) < os.path.getmtime(path+'/'+file.object_name)):
+						print('upload')
+						client.fput_object('alexey', file.object_name, path+'/'+file.object_name)
+						sync_time(path+'/'+file.object_name, file.object_name)
 			except Exception:
 				pass
-			return
-		i+=1 
-	arr.append(file)
-def prepare_to_sync(paths):
-	folders = []
-	to_new.clear()
-	for path in paths:
-		a = []
-		get_all_source(path,a)
-		folders.append(a)
-	sf = client.list_objects('alexey', recursive = True)
-	server_files = []
-	for file in sf:
-		server_files.append(file.object_name)
-	cnt = 0
-	for folder in folders:
-		name_of_dir = paths[cnt]
-		for file in server_files:
-			if (not (name_of_dir+'/'+file in folder)):
-				to_delete.append(file)
-			else:
-				update_time(name_of_dir+'/'+file, to_update)
-		cnt+=1
-	cnt = 0
-	for folder in folders:
-		name_of_dir = paths[cnt]
-		for file in folder:
-			if (not (file[file.find('/')+1:] in server_files)):
-				update_time(file, to_new)
-		cnt+=1
-def sync(paths):
-	prepare_to_sync(paths)
-	#first - update
-	for file in to_update:
-		try:
-			if (client.stat_object('alexey',file[file.find('/')+1:]).last_modified < os.path.getmtime(file)):
-				print("upload")
-				client.fput_object('alexey', file[file.find('/')+1:], file)
-				time = client.stat_object('alexey',file[file.find('/')+1:])
-				os.utime(file,(time.last_modified,time.last_modified))
-		except Exception:
-			pass
-	#second - delete
-	for file in to_delete:
-		client.remove_object('alexey', file)
-	#third - new
-	for file in to_new:
-		try:
-			client.fput_object('alexey', file[file.find('/')+1:], file)
-			time = client.stat_object('alexey',file[file.find('/')+1:])
-			os.utime(file,(time.last_modified,time.last_modified))
-		except Exception:
-			pass
-	folders = []
-	for path in paths:
-		a = []
-		get_all_source(path,a)
-		folders.append(a)
-	sf = client.list_objects('alexey', recursive = True)
-	server_files = []
-	for file in sf:
-		server_files.append(file.object_name)
-	for folder in folders:
-		for file in folder:
-			if (not (file[file.find('/')+1:] in server_files)):
+			history[path+'/'+file.object_name] = True
+		else:
+			if (history.get(path+'/'+file.object_name)):
 				try:
-					os.remove(file)
-					print("remove")
+					print('remove')
+					client.remove_object('alexey',file.object_name)
+					os.remove(path+'/'+file.object_name)
 				except Exception:
 					pass
+				history.pop(path+'/'+file.object_name)
 			else:
-				if (client.stat_object('alexey',file[file.find('/')+1:]).last_modified > os.path.getmtime(file)):
-					print("download")
-					client.fget_object('alexey',file[file.find('/')+1:], file)						
-					time = client.stat_object('alexey',file[file.find('/')+1:])
-					os.utime(file,(time.last_modified,time.last_modified))
-	for path in paths:
-		for file in to_new:
+				try:
+					print('download')
+					client.fget_object('alexey', file.object_name, path+'/'+file.object_name)
+					sync_time(path+'/'+file.object_name, file.object_name)
+				except Exception:
+					pass
+				history[path+'/'+file.object_name] = True
+		try:
+			folder.remove(path+'/'+file.object_name)
+		except Exception:
+			pass
+	for file in folder:
+		if (history.get(file)):
 			try:
-				print("download")
-				client.fget_object('alexey',file[file.find('/')+1:], path+'/'+file[file.find('/')+1:])
-				time = client.stat_object('alexey',file[file.find('/')+1:])
-				os.utime(path+'/'+file[file.find('/')+1:],(time.last_modified,time.last_modified))
+				print("remove")
+				os.remove(file)
+				history.pop(file)
 			except Exception:
 				pass
-if (len(options['dir']) == 0):
-	while True:
-		sync(paths)
-		time.sleep(5)
+		else:
+			try:
+				print('upload')
+				client.fput_object('alexey',file[len(path)+1:], file)
+				sync_time(file,file[len(path)+1:])
+				history[file] = True
+			except Exception:
+				pass
+while 1:
+	sync(options['dir'])
+	time.sleep(5)
