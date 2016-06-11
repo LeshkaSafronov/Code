@@ -3,8 +3,8 @@
 
 python3.5 sync.py --s3 127.0.0.1:9000 --access_key VCKIC6W7R5X75HCL6VM5 --secret_key WkRpCfoNHpoyFc27KW0R8GUdZxxG4RVHA1IBSPji --dir a
 
-^ запуск синхронизирования папки a
+^ запуск синхронизации папки a
 
 python3.5 sync.py --s3 127.0.0.1:9000 --access_key VCKIC6W7R5X75HCL6VM5 --secret_key WkRpCfoNHpoyFc27KW0R8GUdZxxG4RVHA1IBSPji --dir b
 
-^ запуск синхронизирования папки b
+^ запуск синхронизации папки b
