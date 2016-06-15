@@ -91,3 +91,4 @@ def sync(path):
 while 1:
 	sync(options['dir'])
 	time.sleep(5)
+#develop by Leshka
